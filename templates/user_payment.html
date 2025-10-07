@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VMB Payment Gateway</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Virtual Money Bank - Secure Payment Portal</h1>
+        
+        <form id="payment-form">
+            <h2>Payment Details</h2>
+            <div class="form-group">
+                <label for="account_number">VMB Account Number (Sender)</label>
+                <input type="text" id="account_number" value="1234567890123456" required>
+            </div>
+            
+            <div class="form-row" style="display: flex; gap: 15px;">
+                <div class="form-group" style="flex: 1;">
+                    <label for="amount">Amount (USD)</label>
+                    <input type="number" id="amount" step="0.01" value="100.00" required>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label for="security_pin">Security PIN (4 Digits)</label>
+                    <input type="password" id="security_pin" maxlength="4" value="1234" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="payment_method">Payment Method</label>
+                <select id="payment_method" required>
+                    <option value="vmb_transfer">VMB Account Transfer</option>
+                    <option value="card_payment">External Card Payment</option>
+                    <option value="digital_wallet">Digital Wallet (Simulated)</option>
+                    <option value="crypto">Cryptocurrency Purchase</option>
+                </select>
+            </div>
+
+            <button type="submit" id="submit-btn">Process Payment</button>
+        </form>
+        
+        <div id="response-message" class="message-box" style="display:none;"></div>
+    </div>
+    
+    <script>
+        document.getElementById('payment-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const btn = document.getElementById('submit-btn');
+            const msgBox = document.getElementById('response-message');
+            
+            msgBox.style.display = 'none';
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+
+            const data = {
+                account_number: document.getElementById('account_number').value,
+                amount: document.getElementById('amount').value,
+                security_pin: document.getElementById('security_pin').value,
+                payment_method: document.getElementById('payment_method').value,
+                timestamp: new Date().toISOString(),
+                // Include other data for ML features
+            };
+
+            try {
+                const response = await fetch('/api/process_payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                msgBox.textContent = `STATUS: ${result.status.toUpperCase()}. ${result.message || ''}`;
+                msgBox.className = 'message-box ' + result.status.toLowerCase().replace(' ', '');
+                
+            } catch (error) {
+                msgBox.textContent = 'ERROR: Network connection failed.';
+                msgBox.className = 'message-box error';
+            } finally {
+                msgBox.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Process Payment';
+            }
+        });
+    </script>
+</body>
+</html>

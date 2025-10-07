@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VMB Payment Gateway</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>VMB Banker Portal - Transaction Monitoring</h1>
+        
+        <h2>Account Balances</h2>
+        <table>
+            <thead>
+                <tr><th>Account Number</th><th>Customer Name</th><th>Current Balance</th></tr>
+            </thead>
+            <tbody>
+                {% for account in accounts %}
+                <tr>
+                    <td>{{ account.account_number }}</td>
+                    <td>{{ account.customer_name }}</td>
+                    <td>${{ account.current_balance | round(2) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2 style="margin-top: 30px;">ML Flagged Transactions (Manual Review Required)</h2>
+        {% if flagged_txns %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Account</th><th>Amount</th><th>Method</th><th>Timestamp</th>
+                    <th>Status</th><th>Risk Score</th><th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for txn in flagged_txns %}
+                <tr class="flagged">
+                    <td>{{ txn.id }}</td>
+                    <td>{{ txn.account_number }}</td>
+                    <td>${{ txn.amount | round(2) }}</td>
+                    <td>{{ txn.payment_method }}</td>
+                    <td>{{ txn.timestamp.split('T')[0] }}</td>
+                    <td>{{ txn.status }}</td>
+                    <td>{{ txn.risk_score | round(4) }}</td>
+                    <td><button onclick="alert('Approving TXN {{ txn.id }}...')">Approve/Debit</button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="success">No transactions currently flagged for manual review. System is clear.</p>
+        {% endif %}
+
+        <h2 style="margin-top: 30px;">Top 10 Highest Risk Transactions (Audit)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Account</th><th>Amount</th><th>Risk Score</th>
+                    <th>Status</th><th>Fraud Label</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for txn in high_risk_txns %}
+                <tr {% if txn.risk_score > 0.7 %}class="high-risk"{% endif %}>
+                    <td>{{ txn.id }}</td>
+                    <td>{{ txn.account_number }}</td>
+                    <td>${{ txn.amount | round(2) }}</td>
+                    <td>{{ txn.risk_score | round(4) }}</td>
+                    <td>{{ txn.status }}</td>
+                    <td>{{ 'FRAUD' if txn.is_fraud == 1 else 'Legit' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
