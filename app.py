@@ -1,21 +1,29 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask import Flask, request, jsonify, render_template, redirect, url_for, make_response
+from flask_cors import CORS
 import sqlite3
 import datetime
 import uuid
-from fraud_model import get_risk_score, feature_engineer, initialize_or_load_model
-import random
+from fraud_model import get_risk_score, initialize_or_load_model
+import numpy as np 
 
+# --- FLASK SETUP ---
 app = Flask(__name__)
-# Initialize the model on startup
-initialize_or_load_model() 
+CORS(app) # Enable CORS for development
 
 RISK_THRESHOLD_DENY = 0.8  # Deny if risk is very high
 RISK_THRESHOLD_FLAG = 0.4  # Flag for review if risk is medium
 
 def get_db_connection():
+    # Helper function to connect to SQLite DB
     conn = sqlite3.connect('vmb_gateway.db')
     conn.row_factory = sqlite3.Row
     return conn
+
+# Initialize the model on startup
+try:
+    initialize_or_load_model()
+except Exception as e:
+    print(f"FATAL: Could not initialize ML model. Check dependencies and fraud_model.py. Error: {e}")
 
 # --- USER PORTAL ENDPOINTS ---
 
@@ -33,10 +41,21 @@ def process_payment():
         return jsonify({"status": "error", "message": "Missing required transaction data."}), 400
 
     account_number = data['account_number']
-    amount = float(data['amount'])
     
+    # --- FIX: Ensure amount is a clean float immediately ---
+    try:
+        amount = float(data['amount'])
+    except ValueError:
+        return jsonify({"status": "error", "message": "Transaction amount must be a number."}), 400
+    # --- End of FIX ---
+
     # 2. ML Integration: Get the risk score
-    risk_score = get_risk_score(data)
+    try:
+        risk_score = get_risk_score(data)
+    except Exception as e:
+        # Catching the ML error here and logging it instead of crashing the API
+        print(f"ML Model Error during scoring: {e}")
+        return jsonify({"status": "error", "message": "Internal ML processing error. Cannot assess risk."}), 500
     
     # 3. Decision Logic (ML/Risk-Based)
     transaction_status = "Approved"
@@ -47,8 +66,7 @@ def process_payment():
         rejection_reason = "High Fraud Risk Detected (Score: {:.2f})".format(risk_score)
     elif risk_score >= RISK_THRESHOLD_FLAG:
         transaction_status = "Flagged"
-        # Flagged transactions require manual banker review
-        print(f"TRANSACTION FLAGGED: Risk {risk_score}. Requires Banker Review.")
+        print(f"TRANSACTION FLAGGED: Risk {risk_score:.4f}. Requires Banker Review.")
 
     # 4. Core Banking Simulation (Fund Check & Debit)
     conn = get_db_connection()
@@ -67,14 +85,14 @@ def process_payment():
     # 5. Execute Debit & Finalize Status
     if transaction_status in ["Approved", "Flagged"]:
         if transaction_status == "Approved":
-            # Only debit if fully approved (Flagged transactions are typically held)
+            # Only debit if fully approved
             new_balance = account['current_balance'] - amount
             cursor.execute('UPDATE accounts SET current_balance = ? WHERE account_number = ?', 
                            (new_balance, account_number))
         
         transaction_id = str(uuid.uuid4())
         
-        # Log the transaction to the database (crucial for banker review and future ML retraining)
+        # Log the transaction to the database
         is_fraud_label = 1 if risk_score > 0.9 else 0 # Simple label for demonstration
         cursor.execute('''INSERT INTO transactions 
                           (account_number, amount, payment_method, timestamp, status, risk_score, is_fraud) 
@@ -103,7 +121,7 @@ def process_payment():
 
 @app.route('/banker_login')
 def banker_login():
-    # In a real app, this is a dedicated login page
+    # Placeholder for a real login flow
     return redirect(url_for('banker_portal'))
 
 @app.route('/banker_portal')
@@ -119,12 +137,19 @@ def banker_portal():
     accounts = conn.execute('SELECT * FROM accounts').fetchall()
 
     conn.close()
-    return render_template('banker_portal.html', 
-                           flagged_txns=flagged_txns, 
-                           high_risk_txns=high_risk_txns,
-                           accounts=accounts)
+    
+    # Render the template
+    response = make_response(render_template('banker_portal.html', 
+                                             flagged_txns=flagged_txns, 
+                                             high_risk_txns=high_risk_txns,
+                                             accounts=accounts))
+    
+    # FIX: Add headers to prevent browser caching the page data
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
 
 if __name__ == '__main__':
-    # Run database setup if schema.sql exists (should be done once manually)
-    # import database; database.init_db() 
     app.run(debug=True, port=5000)
