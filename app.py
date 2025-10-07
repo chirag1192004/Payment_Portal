@@ -12,6 +12,7 @@ CORS(app) # Enable CORS for development
 
 RISK_THRESHOLD_DENY = 0.8  # Deny if risk is very high
 RISK_THRESHOLD_FLAG = 0.4  # Flag for review if risk is medium
+SIMULATION_ACCOUNT = "0000000000000000" # Special account for infinite funds
 
 def get_db_connection():
     # Helper function to connect to SQLite DB
@@ -75,20 +76,43 @@ def process_payment():
     account = cursor.execute('SELECT current_balance FROM accounts WHERE account_number = ?', 
                              (account_number,)).fetchone()
     
-    if account is None:
-        transaction_status = "Denied"
-        rejection_reason = "Invalid VMB Account Number."
-    elif transaction_status != "Denied" and account['current_balance'] < amount:
-        transaction_status = "Denied"
-        rejection_reason = "Insufficient Funds."
-    
+    current_balance = 0.0 # Default balance
+    db_debit_required = False
+
+    # FIX 1: Accept ANY account number. If not found, create it with a default balance.
+    if account is None and account_number != SIMULATION_ACCOUNT:
+        try:
+            cursor.execute('''INSERT INTO accounts (account_number, current_balance, customer_name) 
+                              VALUES (?, ?, ?)''', (account_number, 1000.00, 'Simulated User'))
+            conn.commit()
+            current_balance = 1000.00
+            print(f"New simulated account created: {account_number}")
+        except sqlite3.IntegrityError:
+            # Should not happen, but prevents crash if concurrent access occurs
+            pass 
+    elif account is not None:
+        current_balance = account['current_balance']
+
+    # FIX 2: Infinite Funds Simulation Logic
+    if account_number == SIMULATION_ACCOUNT:
+        print("SIMULATION MODE: Infinite Funds Activated - Skipping Debit.")
+        db_debit_required = False
+    elif transaction_status != "Denied":
+        # Regular Insufficient Funds check
+        if current_balance < amount:
+            transaction_status = "Denied"
+            rejection_reason = "Insufficient Funds."
+        else:
+            db_debit_required = True
+            
     # 5. Execute Debit & Finalize Status
     if transaction_status in ["Approved", "Flagged"]:
-        if transaction_status == "Approved":
-            # Only debit if fully approved
-            new_balance = account['current_balance'] - amount
+        if db_debit_required and transaction_status == "Approved":
+            # Only debit if fully approved AND not in infinite mode
+            new_balance = current_balance - amount
             cursor.execute('UPDATE accounts SET current_balance = ? WHERE account_number = ?', 
                            (new_balance, account_number))
+            print(f"Account {account_number} debited. New balance: {new_balance:.2f}")
         
         transaction_id = str(uuid.uuid4())
         
